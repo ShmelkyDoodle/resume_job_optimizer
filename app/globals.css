@@ -1,0 +1,15 @@
+/* The page UI (ResumeFitAudit) is fully self-styled with inline styles and its
+   own scoped classes, so this file is just a minimal reset. */
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background: #f3eee2;
+}
