@@ -80,7 +80,9 @@ would inline it into the browser bundle.
 
 ## Notes
 
-- The model is `claude-opus-4-7`. Change `MODEL` in `app/api/grade/route.js` to
-  use a different model.
+- The model defaults to `claude-opus-4-8`. To use a different model, set the
+  `ANTHROPIC_MODEL` environment variable (e.g. `ANTHROPIC_MODEL=claude-sonnet-4-6`
+  in `.env.local` for local dev, or in **Project → Settings → Environment
+  Variables** on Vercel). No code change needed.
 - `@anthropic-ai/sdk` is set to `latest` here for convenience; pin it to a
   specific version for reproducible builds.

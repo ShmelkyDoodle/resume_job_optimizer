@@ -5,7 +5,7 @@ export const runtime = "nodejs";
 // Allow longer model calls than the default serverless timeout on Vercel.
 export const maxDuration = 60;
 
-const MODEL = "claude-sonnet-4-6";
+const MODEL = process.env.ANTHROPIC_MODEL ?? "claude-opus-4-8";
 
 // The grading pipeline, ported verbatim from the ResumeFitAudit prototype.
 // Sent as the (cacheable) system prompt — it is the stable instruction shared
