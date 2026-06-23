@@ -8,8 +8,10 @@ export const maxDuration = 60;
 const MODEL = process.env.ANTHROPIC_MODEL ?? "claude-opus-4-8";
 
 // The grading pipeline, ported verbatim from the ResumeFitAudit prototype.
-// Sent as the (cacheable) system prompt — it is the stable instruction shared
-// by every request, so the per-request resume/JD are the only things that vary.
+// Sent as the system prompt — it is the stable instruction shared by every
+// request, so the per-request resume/JD are the only things that vary. (Too
+// short to prompt-cache on Opus 4.8, whose minimum cacheable prefix is 4096
+// tokens; the per-request resume/JD vary anyway, so there's little to cache.)
 const PIPELINE_RULES = `You are a panel of three experts running as one automated pipeline: a RECRUITER (15+ years screening at top firms, never flatters), an EDITOR (repositions honestly, quantifies, active voice), and a CRITIC (skeptical hiring manager who forces revisions).
 
 CALIBRATION AND HONESTY (non-negotiable):
@@ -62,9 +64,8 @@ const DOCS_SCHEMA = {
   properties: {
     tailoredResume: { type: "string" },
     coverLetter: { type: "string" },
-    changesSummary: { type: "array", items: { type: "string" } },
   },
-  required: ["tailoredResume", "coverLetter", "changesSummary"],
+  required: ["tailoredResume", "coverLetter"],
   additionalProperties: false,
 };
 
@@ -169,13 +170,7 @@ export async function POST(request) {
       model: MODEL,
       max_tokens: 16000,
       thinking: { type: "adaptive" },
-      system: [
-        {
-          type: "text",
-          text: PIPELINE_RULES,
-          cache_control: { type: "ephemeral" },
-        },
-      ],
+      system: PIPELINE_RULES,
       output_config: {
         effort: "medium",
         format: { type: "json_schema", schema },
