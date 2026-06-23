@@ -165,42 +165,72 @@ export async function POST(request) {
       ? buildReportPrompt(resume, jobDescription, context)
       : buildDocsPrompt(resume, jobDescription, context);
 
-  try {
-    const message = await client.messages.create({
-      model: MODEL,
-      max_tokens: 16000,
-      thinking: { type: "adaptive" },
-      system: PIPELINE_RULES,
-      output_config: {
-        effort: "medium",
-        format: { type: "json_schema", schema },
-      },
-      messages: [{ role: "user", content: prompt }],
-    });
+  // Stream the model call. The model phase can run long (adaptive thinking
+  // plus a full resume/cover-letter rewrite), so rather than holding one
+  // silent buffered response that a proxy or browser may idle-timeout, we
+  // deliver the result over an NDJSON stream and keep the connection warm
+  // with a heartbeat. Each line is one JSON message:
+  //   {"type":"progress"}                  zero or more keepalive pings
+  //   {"type":"result","mode","result"}    success (terminal)
+  //   {"type":"error","error"}             model-phase failure (terminal)
+  // Request validation above still returns plain JSON with a proper status
+  // code, because those failures happen before the stream starts.
+  const encoder = new TextEncoder();
 
-    const textBlock = message.content.find((block) => block.type === "text");
-    if (!textBlock) {
-      return Response.json(
-        { error: "The model returned no text content." },
-        { status: 502 }
-      );
-    }
+  const responseStream = new ReadableStream({
+    async start(controller) {
+      let closed = false;
+      const send = (obj) => {
+        if (closed) return;
+        controller.enqueue(encoder.encode(JSON.stringify(obj) + "\n"));
+      };
+      // A ping every 10s keeps proxies and the browser from dropping an
+      // otherwise-idle connection while the model thinks.
+      const heartbeat = setInterval(() => send({ type: "progress" }), 10000);
 
-    let result;
-    try {
-      result = parseModelJson(textBlock.text);
-    } catch {
-      return Response.json(
-        { error: "The model returned malformed JSON." },
-        { status: 502 }
-      );
-    }
+      try {
+        const modelStream = client.messages.stream({
+          model: MODEL,
+          max_tokens: 16000,
+          thinking: { type: "adaptive" },
+          system: PIPELINE_RULES,
+          output_config: {
+            effort: "medium",
+            format: { type: "json_schema", schema },
+          },
+          messages: [{ role: "user", content: prompt }],
+        });
 
-    return Response.json({ mode, result });
-  } catch (err) {
-    const status = typeof err?.status === "number" ? err.status : 500;
-    const errorMessage =
-      err?.error?.error?.message || err?.message || "Request to the model failed.";
-    return Response.json({ error: errorMessage }, { status });
-  }
+        const message = await modelStream.finalMessage();
+        const textBlock = message.content.find((block) => block.type === "text");
+        if (!textBlock) {
+          send({ type: "error", error: "The model returned no text content." });
+        } else {
+          let result;
+          try {
+            result = parseModelJson(textBlock.text);
+          } catch {
+            send({ type: "error", error: "The model returned malformed JSON." });
+            return;
+          }
+          send({ type: "result", mode, result });
+        }
+      } catch (err) {
+        const errorMessage =
+          err?.error?.error?.message || err?.message || "Request to the model failed.";
+        send({ type: "error", error: errorMessage });
+      } finally {
+        clearInterval(heartbeat);
+        closed = true;
+        controller.close();
+      }
+    },
+  });
+
+  return new Response(responseStream, {
+    headers: {
+      "Content-Type": "application/x-ndjson; charset=utf-8",
+      "Cache-Control": "no-cache, no-transform",
+    },
+  });
 }

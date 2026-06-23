@@ -34,13 +34,43 @@ async function gradeViaApi(mode, { resume, jd, context }) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ mode, resume, jobDescription: jd, context }),
   });
-  const data = await res.json().catch(() => null);
+
+  // Request-validation failures come back as a non-2xx JSON response (no
+  // stream). Read them the old way.
   if (!res.ok) {
+    const data = await res.json().catch(() => null);
     throw new Error(
       data?.error || `Request failed (${res.status}). Try again in a moment.`
     );
   }
-  return data.result;
+
+  // Success is an NDJSON stream: zero or more {type:"progress"} keepalives,
+  // then exactly one terminal {type:"result"} or {type:"error"} line.
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let result;
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    let nl;
+    while ((nl = buffer.indexOf("\n")) !== -1) {
+      const line = buffer.slice(0, nl).trim();
+      buffer = buffer.slice(nl + 1);
+      if (!line) continue;
+      const msg = JSON.parse(line);
+      if (msg.type === "error") throw new Error(msg.error || "Something went wrong. Try again.");
+      if (msg.type === "result") result = msg.result;
+      // type === "progress": just a keepalive, keep reading.
+    }
+  }
+
+  if (result === undefined) {
+    throw new Error("The response ended unexpectedly. Try again.");
+  }
+  return result;
 }
 
 function gradeTone(g) {
