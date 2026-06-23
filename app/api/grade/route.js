@@ -2,8 +2,11 @@ import Anthropic from "@anthropic-ai/sdk";
 
 // Run on the Node.js runtime (the Anthropic SDK is not edge-compatible).
 export const runtime = "nodejs";
-// Allow longer model calls than the default serverless timeout on Vercel.
-export const maxDuration = 60;
+// Give long model calls room: a docs generation with adaptive thinking can
+// run well past 60s. 300s is the max on Vercel Hobby (free) with fluid compute
+// (enabled by default); Pro/Enterprise allow more. The NDJSON heartbeat below
+// keeps the connection warm so it isn't dropped before this cap is reached.
+export const maxDuration = 300;
 
 const MODEL = process.env.ANTHROPIC_MODEL ?? "claude-opus-4-8";
 
