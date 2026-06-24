@@ -28,11 +28,13 @@ const PALETTE = {
 // Calls the server route, which holds the API key and runs the grading
 // pipeline (PIPELINE_RULES + the report/docs prompt builders). Returns the
 // parsed result object, or throws with a readable message.
-async function gradeViaApi(mode, { resume, jd, context }) {
+async function gradeViaApi(mode, { resume, jd, context, report }) {
   const res = await fetch("/api/grade", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ mode, resume, jobDescription: jd, context }),
+    // report is sent only for docs mode, so the rewrite builds on the report's
+    // analysis instead of re-deriving it. Undefined for report mode (omitted).
+    body: JSON.stringify({ mode, resume, jobDescription: jd, context, report }),
   });
 
   // Request-validation failures come back as a non-2xx JSON response (no
@@ -139,7 +141,7 @@ export default function ResumeFitAudit() {
     setError("");
     setDocsLoading(true);
     try {
-      const result = await gradeViaApi("docs", { resume, jd, context });
+      const result = await gradeViaApi("docs", { resume, jd, context, report });
       setDocs(result);
       setDocTab("resume");
     } catch (err) {
@@ -230,11 +232,11 @@ export default function ResumeFitAudit() {
           <div>
             <button className="label" onClick={() => setShowContext((s) => !s)}
               style={{ background: "none", border: "none", cursor: "pointer", color: PALETTE.inkSoft, padding: 0 }}>
-              {showContext ? "− hide" : "+ add"} optional context (referral, relocation, achievements not in resume)
+              {showContext ? "− hide" : "+ add"} optional context (projects + links, referral, relocation, achievements not in resume)
             </button>
             {showContext && (
               <textarea className="ta" rows={3} value={context} onChange={(e) => setContext(e.target.value)}
-                style={{ marginTop: 6 }} placeholder="e.g. I have a referral here / open to relocating / shipped X last month" />
+                style={{ marginTop: 6 }} placeholder="Projects with links (e.g. Resume Fit Audit, github.com/you/x) / referral / open to relocating / shipped X last month. Links here feed the Projects section when the job asks to see what you've built." />
             )}
           </div>
 
@@ -268,6 +270,33 @@ export default function ResumeFitAudit() {
               </div>
             </div>
 
+            {(report.jdThesis || report.leadHook || report.companyRead) && (
+              <>
+                <hr className="rule" />
+                <div style={{ paddingTop: 22, display: "grid", gap: 16 }}>
+                  <div className="label" style={{ color: PALETTE.ink }}>How to win this one</div>
+                  {report.jdThesis && (
+                    <div>
+                      <span className="label" style={{ color: PALETTE.faint }}>What the role values most</span>
+                      <p className="disp" style={{ margin: "3px 0 0", fontSize: 17, lineHeight: 1.4 }}>{report.jdThesis}</p>
+                    </div>
+                  )}
+                  {report.leadHook && (
+                    <div>
+                      <span className="label" style={{ color: PALETTE.faint }}>Lead with this</span>
+                      <p style={{ margin: "3px 0 0", fontSize: 15.5, lineHeight: 1.45, color: PALETTE.green, fontWeight: 500 }}>{report.leadHook}</p>
+                    </div>
+                  )}
+                  {report.companyRead && (
+                    <div>
+                      <span className="label" style={{ color: PALETTE.faint }}>Company read</span>
+                      <p style={{ margin: "3px 0 0", fontSize: 15, lineHeight: 1.45, color: PALETTE.inkSoft }}>{report.companyRead}</p>
+                    </div>
+                  )}
+                </div>
+              </>
+            )}
+
             <hr className="rule" />
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(260px,1fr))", gap: 30, paddingTop: 22 }}>
               <Block title="Where it lands" accent={PALETTE.green}>
@@ -284,6 +313,34 @@ export default function ResumeFitAudit() {
                 ))}
               </Block>
             </div>
+
+            {report.keywordsToSurface?.length > 0 && (
+              <div style={{ paddingTop: 22 }}>
+                <div className="label" style={{ marginBottom: 4, color: PALETTE.green }}>Keywords to surface (you already qualify)</div>
+                <p className="mono" style={{ fontSize: 11, color: PALETTE.faint, margin: "0 0 12px" }}>
+                  Re-word these so the resume matches the posting's language. Honest: the evidence is already in your resume.
+                </p>
+                <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
+                  {report.keywordsToSurface.map((k, i) => (
+                    <li key={i} style={{ padding: "10px 0", borderTop: i ? `1px solid ${PALETTE.line}` : "none" }}>
+                      <span className="chip" style={{ borderColor: PALETTE.green, color: PALETTE.green }}>{k.term}</span>
+                      <div style={{ fontSize: 15, lineHeight: 1.45, color: "#2a2720", marginTop: 6 }}>{k.suggestedRephrase}</div>
+                      {k.currentPhrasing && (
+                        <div className="mono" style={{ fontSize: 11, color: PALETTE.faint, marginTop: 3 }}>now: {k.currentPhrasing}</div>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {report.structuralGaps?.length > 0 && (
+              <div style={{ paddingTop: 22 }}>
+                <Block title="Fix before you apply" accent={PALETTE.rust}>
+                  {report.structuralGaps.map((s, i) => <li key={i} style={liStyle(PALETTE.rust)}>{s}</li>)}
+                </Block>
+              </div>
+            )}
 
             {(report.tradeoffs?.length > 0 || report.keywordsMissing?.length > 0) && (
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(260px,1fr))", gap: 30, paddingTop: 8 }}>
